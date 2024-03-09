@@ -14,10 +14,7 @@ ENV \
 
 # Install packages.
 RUN \
-  apk add --no-cache python3 mysql-client py3-pip sqlite
-
-# Install mysql python connector
-RUN pip install mysql-connector-python
+  apk add --no-cache python3 mysql-client py3-pip sqlite py3-mysqlclient
 
 # Add files to the container.
 COPY entrypoint.sh /docker-entrypoint
