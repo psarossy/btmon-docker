@@ -4,7 +4,7 @@
 # http://github.com/tenstartups/btmon-docker
 #
 
-FROM alpine:latest
+FROM alpine:3.15
 
 MAINTAINER Marc Lennox <marc.lennox@gmail.com>
 
@@ -14,7 +14,7 @@ ENV \
 
 # Install packages.
 RUN \
-  apk add --no-cache python3 mysql-client py3-pip sqlite py3-mysqlclient
+  apk add --no-cache python2 mysql-client py-pip sqlite py3-mysqlclient
 
 # Add files to the container.
 COPY entrypoint.sh /docker-entrypoint
