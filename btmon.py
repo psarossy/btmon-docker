@@ -1,5 +1,5 @@
-#!/usr/bin/python -u
-__version__ = '3.0.8'
+#!/usr/bin/env python
+__version__ = '3.3.1'
 """Data collector/processor for Brultech monitoring devices.
 
 Collect data from Brultech ECM-1240, ECM-1220, and GEM power monitors.  Print
@@ -9,6 +9,7 @@ Includes support for uploading to the following services:
   * MyEnerSave     * SmartEnergyGroups   * xively         * WattzOn
   * PlotWatt       * PeoplePower         * thingspeak     * Eragy
   * emoncms        * Wattvision          * PVOutput       * Bidgely
+  * MQTT           * InfluxDB
 
 Thanks to:
   Amit Snyderman <amit@amitsnyderman.com>
@@ -216,6 +217,35 @@ computer reading/writing to a very slow usb drive, a single update takes about
 45 seconds for 108 RRD files.
 
 
+InfluxDB Configuration:
+
+Connections to InfluxDB require the InfluxDB-Python client. On Debian/Ubuntu,
+you can install it with
+
+  apt-get install python-influxdb
+
+Otherwise, you can run
+
+  pip install influxdb
+
+This uses the InfluxDB HTTP API, which by default runs on port 8086. You must
+specify the database and measurement to write to.
+
+[influxdb]
+influxdb_out = true
+influxdb_host = localhost           # default
+influxdb_port = 8086                # default
+influxdb_upload_period = 60         # default
+influxdb_username = btmon           # if using authentication
+influxdb_password = abcde           # if using authentication
+influxdb_database = btmon           # required
+influxdb_measurement = energy       # required
+influxdb_mode = row                 # "row": 1 series w/ many values; "col": many series w/ 1 value each
+influxdb_map = 1234567_ch1_aws,a,1234567_ch2_aws,b  # renames channels
+influxdb_tags = key1,value1,key2,value2             # adds tags
+influxdb_db_schema = counters,ecmread,ecmreadext       # selects schema, default counters
+
+
 OpenEnergyMonitor Configuration:
 
 1) register for an account
@@ -309,15 +339,15 @@ es_map=399999_ch1,kitchen,,399999_ch2,solar array,1,399999_aux1,,
 
 Bidgely Configuration:
 
-1) Choose "Get Started" at http://www.bidgely.com.
+1) Choose "Get Started" at http://www.bidgely.com/home
 2) Select your zip code, etc.
-3) Choose any monitor type during signup; "Brultech ECM-1240" is fine
-4) Enter your email and password to create your accoun
-5) Choose "Start Setup" then "Connect Energy Monitor"
-6) Choose "I have a different Energy Monitor"
-7) Choose "Bidgely API" from the list, and "Connect this monitor"
-8) Choose "I have downloaded the API document"
-9) Note your Upload URL and *SAVE IT* - you cant find it again
+3) Choose "I have an energy monitor"
+4) Enter your name, email and password to create your account
+5) At 1. Select your Energy Monitor choose Bidgely API from the
+   drop-down list and click "I have this monitor"
+6) Optionally download the API documentation
+7) Choose "I have downloaded the API document
+9) Copy the Upload URL to somewehre safe
 10) Add the upload URL to your config file by_url= parameter
 11) Click "Connect to Bidgely" and start btmon.
 
@@ -646,6 +676,65 @@ pvo_consumption_channel = 399999_ch2
 pvo_temperature_channel = 399999_t1
 
 
+MQTT Configuration:
+
+1) setup an mqtt server, like mosquitto
+2) create a password-protected mqtt account, eg. "energy"
+3) use pip to install the "paho-mqtt" module
+
+Without a mqtt_map parameter config, the setup will push data to the mqtt
+server with topic names of the form:
+
+the voltage of the system:
+  <base_topic> /volts -> <volts-value>
+
+for each energy channel:
+  <base_topic> /ch <channel-n> _w -> <power-value>
+  <base_topic> /ch <channel-n> _wh -> <energy-value>
+  <base_topic> /ch <channel-n> _dwh -> <delta-energy-value>
+
+for each temperature channel:
+  <base_topic> /t <temperature-n> -> <temperature-value>
+
+for each pulse channel:
+  <base_topic> /p <pulse-n> -> <pulse-count>
+
+for example:
+   [{"topic":"/house/energy/volts", "payload":123.7},
+    {"topic":"/house/energy/399999_ch1_w", "payload":539.533},
+    {"topic":"/house/energy/399999_ch1_wh", "payload":6851728.012},
+    {"topic":"/house/energy/399999_ch1_dwh", "payload":2.248},
+    {"topic":"/house/energy/399999_p1", "payload":3141592},
+    {"topic":"/house/energy/399999_t1", "payload":79.500}]
+
+Temperature, Pulse and Voltage values are emitted only if supported by the
+underlying device.
+
+By configuring the mqtt_map parameter, you can set this up to provide output
+like this:
+
+   [{"topic":"/house/energy/volts", "payload":123.7},
+    {"topic":"/house/energy/solar", "payload":539.533},
+    {"topic":"/house/energy/solar_wh", "payload":6851728.012},
+    {"topic":"/house/energy/solar_dwh", "payload":2.248},
+    {"topic":"/house/energy/water", "payload":3141592},
+    {"topic":"/house/energy/garage_temperature", "payload":79.500}]
+
+Here's a sample mqtt configuration/section running against an mqtt broker
+on the same instance (localhost) as the btmon.py process.
+
+[mqtt]
+mqtt_out=true
+mqtt_host=localhost
+mqtt_port=1883
+mqtt_clientid=btmon
+mqtt_base_topic=/house/energy
+mqtt_user=energy
+mqtt_passwd=please_set_me
+mqtt_map=399999_ch1_w,solar,399999_ch1_wh,solar_wh,399999_t1,garage
+mqtt_upload_period=60
+
+
 Upgrading:
 
 Please consider the following when upgrading from ecmread.py:
@@ -670,6 +759,25 @@ Please consider the following when upgrading from ecmread.py:
 
 
 Changelog:
+
+- 3.3.1
+* added diffent schema formats to GEM and InfluxDB
+
+- 3.3.0
+* added InfluxDB support (thanks to chicago6061 and mroch)
+
+- 3.2.0  07sep16 mwall
+* added MQTT support (thanks to mrguessed)
+
+- 3.1.2  06sep16 mwall
+* added option to disable serial obfuscation (thanks to mroch)
+* added option for utc clock (thanks to mroch)
+* supress sql warnings (thanks to WaterByWind)
+* added option to include current (thanks to WaterByWind)
+* send volts to open energy monitor (thanks to WaterByWind)
+
+- 3.1.1  06mar15 mwall
+* fixed debug message in SocketServerCollector (thanks to Brian Klass)
 
 - 3.1.0  07feb15 mwall
 * punt old pachube/cosm url, use xively now
@@ -867,6 +975,9 @@ SKIP_UPLOAD = 0
 # if set to 1, trust the device's clock
 TRUST_DEVICE_CLOCK = 0
 
+# if set to 1, assume timestamps from the device are in UTC
+DEVICE_CLOCK_IS_UTC = 0
+
 # if set to 1, obfuscate any serial number before uploading
 OBFUSCATE_SERIALS = 1
 
@@ -880,6 +991,10 @@ OBFUSCATE_SERIALS = 1
 # that has a polarized watt-second counter so that the power and energy values
 # match those of brultech software.
 REVERSE_POLARITY = 0
+
+# the gem includes an option to include current values in packets.  if this is
+# enabled in the gem, then enable it here to process the current values.
+INCLUDE_CURRENT = 0
 
 # number of retries to attempt when reading device, 0 means retry forever
 READ_RETRIES = 0
@@ -926,6 +1041,7 @@ DEFAULT_DB_SCHEMA = DB_SCHEMA_COUNTERS
 
 # channel filters
 FILTER_PE_LABELS = 'pelabels'
+FILTER_CURRENT = 'current'
 FILTER_POWER = 'power'
 FILTER_ENERGY = 'energy'
 FILTER_PULSE = 'pulse'
@@ -1075,11 +1191,11 @@ PBE_TOKEN = ''
 PBE_FEED = ''
 
 # open energy monitor emoncms defaults
-OEM_URL = 'https://localhost/emoncms/api/post'
+OEM_URL = 'https://localhost/emoncms/input/post.json'
 OEM_UPLOAD_PERIOD = MINUTE
 OEM_TIMEOUT = 15 # seconds
 OEM_TOKEN = ''
-OEM_NODE = None
+OEM_NODE = 1
 
 # wattvision v0.2 defaults
 #   https://www.wattvision.com/usr/api
@@ -1106,9 +1222,40 @@ PVO_GEN_CHANNEL = ''
 PVO_CON_CHANNEL = ''
 PVO_TEMP_CHANNEL = ''
 
+# MQTT defaults
+#   Recommended upload period matches the sample period.  If set slower
+#   than the sample period, batches of un-timestamped mqtt messages
+#   will be delivered to the mqtt broker.
+# the map is a comma-delimited list of channel,topic pairs.  for example:
+#   399999_ch1_w,solar,399999_ch1_wh,solar_wh,399999_t1,garage
+MQTT_HOST              = 'localhost'
+MQTT_PORT              = 1883
+MQTT_CLIENTID          = 'btmon'
+MQTT_BASE_TOPIC        = '/house/energy'
+MQTT_QOS               = 0
+MQTT_RETAIN            = False
+MQTT_MAP               = ''
+MQTT_UPLOAD_PERIOD     = MINUTE
+
+# InfluxDB defaults
+#   Minimum upload interval is 60 seconds.
+#   Recommended sampling interval is 2 to 30 seconds.
+INFLUXDB_HOST = 'localhost'
+INFLUXDB_PORT = '8086'
+INFLUXDB_UPLOAD_PERIOD = 1 * MINUTE
+INFLUXDB_TIMEOUT = 60 # seconds
+INFLUXDB_USERNAME = ''
+INFLUXDB_PASSWORD = ''
+INFLUXDB_DATABASE = ''
+INFLUXDB_MEASUREMENT = ''
+INFLUXDB_MODE = 'col'
+INFLUXDB_MAP = ''
+INFLUXDB_TAG_MAP = ''
+INFLUXDB_DB_SCHEMA = FILTER_DB_SCHEMA_COUNTERS
 
 import base64
 import bisect
+import calendar
 import errno
 import optparse
 import socket
@@ -1159,6 +1306,15 @@ try:
 except ImportError:
     ConfigParser = None
 
+try:
+    import paho.mqtt.publish as publish
+except ImportError:
+    publish = None
+
+try:
+    from influxdb import InfluxDBClient
+except ImportError:
+    InfluxDBClient = None
 
 class CounterResetError(Exception):
     def __init__(self, msg):
@@ -1201,7 +1357,7 @@ LOG_ERROR = 0
 LOG_WARN  = 1
 LOG_INFO  = 2
 LOG_DEBUG = 3
-LOGLEVEL  = 2
+LOGLEVEL  = LOG_INFO
 
 def dbgmsg(msg):
     if LOGLEVEL >= LOG_DEBUG:
@@ -1222,6 +1378,7 @@ def errmsg(msg):
 def logmsg(msg):
     ts = fmttime(time.localtime())
     print "%s %s" % (ts, msg)
+    sys.stdout.flush()
 
 # Helper Functions
 
@@ -1417,7 +1574,7 @@ class BasePacket(object):
             if not data: # No data left
                 raise ReadError('no data after %d bytes' % len(packet))
             packet += data
- 
+
         if len(packet) < pktlen:
             raise ReadError("incomplete packet: expected %d bytes, got %d" %
                             (pktlen, len(packet)))
@@ -1617,7 +1774,7 @@ class ECM1220BinaryPacket(ECMBinaryPacket):
         c1 = self._getresetcounter(now['flag'])
         if c1 != c0:
             raise CounterResetError("old: %d new: %d" % (c0, c1))
-        
+
         ret = now
         ds = self._calc_secs(ret, prev)
         self._calc_pe('ch1', ds, ret, prev)
@@ -1659,7 +1816,7 @@ class ECM1240BinaryPacket(ECM1220BinaryPacket):
         elif fltr == FILTER_DB_SCHEMA_ECMREAD:
             c = ['volts', 'ch1_amps', 'ch2_amps', 'ch1_w', 'ch2_w', 'aux1_w', 'aux2_w', 'aux3_w', 'aux4_w', 'aux5_w']
         elif fltr == FILTER_DB_SCHEMA_ECMREADEXT:
-            c = ['volts', 'ch1_a', 'ch2_a', 'ch1_w', 'ch2_w', 'aux1_w', 'aux2_w', 'aux3_w', 'aux4_w', 'aux5_w', 'ch1_wh', 'ch2_wh', 'aux1_wh', 'aux2_wh', 'aux3_wh', 'aux4_wh', 'aux5_wh', 'ch1_whd', 'ch2_whd', 'aux1_whd', 'aux2_whd', 'aux3_whd', 'aux4_whd', 'aux5_whd', 'ch1_pw', 'ch1_nw', 'ch2_pw', 'ch2_nw', 'ch1_pwh', 'ch1_nwh', 'ch2_pwh', 'ch2_nwh']
+            c = ['volts', 'ch1_a', 'ch2_a', 'ch1_w', 'ch2_w', 'aux1_w', 'aux2_w', 'aux3_w', 'aux4_w', 'aux5_w', 'ch1_wh', 'ch2_wh', 'aux1_wh', 'aux2_wh', 'aux3_wh', 'aux4_wh', 'aux5_wh', 'ch1_dwh', 'ch2_dwh', 'aux1_dwh', 'aux2_dwh', 'aux3_dwh', 'aux4_dwh', 'aux5_dwh', 'ch1_pw', 'ch1_nw', 'ch2_pw', 'ch2_nw', 'ch1_pwh', 'ch1_nwh', 'ch2_pwh', 'ch2_nwh']
         elif fltr == FILTER_DB_SCHEMA_COUNTERS:
             c = ['volts', 'ch1_a', 'ch2_a', 'ch1_aws', 'ch2_aws', 'ch1_pws', 'ch2_pws', 'aux1_ws', 'aux2_ws', 'aux3_ws', 'aux4_ws', 'aux5_ws', 'aux5_volts']
         return c
@@ -1748,6 +1905,9 @@ class GEM48PBinaryPacket(BasePacket):
         if fltr == FILTER_PE_LABELS:
             for x in range(1, self.NUM_CHAN + 1):
                 c.append('ch%d' % x)
+        elif fltr == FILTER_CURRENT:
+            for x in range(1, self.NUM_CHAN + 1):
+                c.append('ch%d_a' % x)
         elif fltr == FILTER_POWER:
             for x in range(1, self.NUM_CHAN + 1):
                 c.append('ch%d_w' % x)
@@ -1769,6 +1929,27 @@ class GEM48PBinaryPacket(BasePacket):
                 c.append('p%d' % x)
             for x in range(1, self.NUM_SENSE + 1):
                 c.append('t%d' % x)
+        elif fltr == FILTER_DB_SCHEMA_ECMREAD:
+            c = ['volts']
+            for x in range(1, self.NUM_CHAN + 1):
+                c.append('ch%d_a' % x)
+            for x in range(1, self.NUM_CHAN + 1):
+                c.append('ch%d_w' % x)
+        elif fltr == FILTER_DB_SCHEMA_ECMREADEXT:
+            c = ['volts']
+            for x in range(1, self.NUM_CHAN + 1):
+                c.append('ch%d_a' % x)
+            for x in range(1, self.NUM_CHAN + 1):
+                c.append('ch%d_w' % x)
+            for x in range(1, self.NUM_CHAN + 1):
+                c.append('ch%d_wh' % x)
+            for x in range(1, self.NUM_CHAN + 1):
+                c.append('ch%d_dwh' % x)
+            for x in range(1, self.NUM_PULSE + 1):
+                c.append('p%d' % x)
+            for x in range(1, self.NUM_SENSE + 1):
+                c.append('t%d' % x)
+            
         return c
 
     def compile(self, rpkt):
@@ -1790,7 +1971,10 @@ class GEM48PBinaryPacket(BasePacket):
         # Device Information (1 byte)
         cpkt['unit_id'] = self._convert(rpkt[485:486])
 
-        # Reserved (96 bytes)
+        # Current (2 bytes each)
+        if INCLUDE_CURRENT:
+            for x in range(1, self.NUM_CHAN+1):
+                cpkt['ch%d_a' % x] = 0.02 * self._convert(rpkt[486+2*(x-1):486+2*x])
 
         # Seconds (3 bytes)
         cpkt['secs'] = self._convert(rpkt[582:585])
@@ -1806,7 +1990,7 @@ class GEM48PBinaryPacket(BasePacket):
         for x in range(1, self.NUM_SENSE + 1):
             cpkt['t%d' % x] = self._mktemperature(rpkt[597+2*(x-1):597+2*x])
 
-        # Spare (2 bytes)
+        # Footer (2 bytes)
 
         # Add the current time as the timestamp
         cpkt['time_created'] = getgmtime()
@@ -1843,7 +2027,10 @@ class GEM48PBinaryPacket(BasePacket):
         print ts+": Serial: %s" % p['serial']
         print ts+": Voltage: % 6.2fV" % p['volts']
         for x in range(1, self.NUM_CHAN + 1):
-            print ts+": Ch%02d: % 13.6fKWh (% 5dW)" % (x, p['ch%d_wh' % x]/1000, p['ch%d_w' % x])
+            if INCLUDE_CURRENT:
+                print ts+": Ch%02d: % 13.6fKWh (% 5dW) (% 7.2fA)" % (x, p['ch%d_wh' % x]/1000, p['ch%d_w' % x], p['ch%d_a' % x])
+            else:
+                print ts+": Ch%02d: % 13.6fKWh (% 5dW)" % (x, p['ch%d_wh' % x]/1000, p['ch%d_w' % x])
         for x in range(1, self.NUM_PULSE + 1):
             print ts+": p%d: % 15d" % (x, p['p%d' % x])
         for x in range(1, self.NUM_SENSE + 1):
@@ -1872,8 +2059,14 @@ class GEM48PTBinaryPacket(GEM48PBinaryPacket):
 
         # Add the timestamp as epoch
         if self.USE_PACKET_TIMESTAMP:
-            tstr = '20%d.%d.%d %d:%d:%d' % (cpkt['year'],cpkt['mth'],cpkt['day'],cpkt['hr'],cpkt['min'],cpkt['sec'])
-            cpkt['time_created'] = int(time.mktime(time.strptime(tstr, '%Y.%m.%d %H:%M:%S')))
+            tstr = '20%d.%d.%d %d:%d:%d' % (
+                cpkt['year'], cpkt['mth'], cpkt['day'],
+                cpkt['hr'], cpkt['min'], cpkt['sec'])
+            time_tuple = time.strptime(tstr, '%Y.%m.%d %H:%M:%S')
+            if DEVICE_CLOCK_IS_UTC:
+                cpkt['time_created'] = int(calendar.timegm(time_tuple))
+            else:
+                cpkt['time_created'] = int(time.mktime(time_tuple))
 
         return cpkt
 
@@ -1980,7 +2173,7 @@ class ECMReadSchema(BaseSchema):
         sql.append(','.join(values))
         sql.append(')')
         return ''.join(sql), len(values), p['serial'], p['time_created']
-        
+
 
 class ECMReadExtSchema(BaseSchema):
     def __init__(self):
@@ -2363,9 +2556,10 @@ class SocketServerCollector(BufferedDataCollector):
         infmsg('SOCKET: bind port: %d' % self._port)
 
     def readbytes(self, count):
-        nbytes = self._conn.recv(count)
-        dbgmsg('SOCKET: read %d bytes from socket' % nbytes)
-        return nbytes
+        data = self._conn.recv(count)
+        dbgmsg('SOCKET: read %d of %d bytes from socket: %s' %
+               (len(data), count, ' '.join(['%02x' % ord(x) for x in data])))
+        return data
 
     def read(self, packet_format):
         try:
@@ -2417,8 +2611,8 @@ class DatabaseCollector(BufferedDataCollector):
         cursor.execute('select max(time_created) from ' + self._table)
         row = cursor.fetchone()
         if row:
-            dbgmsg('DB: latest record has time_created of %d' % row[0])
-            self._lastread = row[0]
+            dbgmsg('DB: latest record has time_created of %s' % row[0])
+            self._lastread = int(row[0])
         cursor.close()
 
     def cleanup(self):
@@ -2685,7 +2879,7 @@ class DatabaseProcessor(BaseProcessor):
             cursor.execute(''.join(sql))
             cursor.close()
             infmsg('DB: inserted %d values for %s at %s' % (nval, sn, ts))
-        self.conn.commit()        
+        self.conn.commit()
 
 
 class MySQLClient(object):
@@ -2774,14 +2968,16 @@ class MySQLConfigurator(MySQLClient):
         try:
             self.setup()
 
-            infmsg('MYSQL: creating database %s' % self.db_database)
             cursor = self.conn.cursor()
-            cursor.execute('create database if not exists %s' % self.db_database)
-            cursor.close()
-
-            infmsg('MYSQL: creating table %s' % self.db_table)
-            cursor = self.conn.cursor()
-            cursor.execute('create table if not exists %s %s' % (self.db_table, SCHEMA.gettablesql('auto_increment')))
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                infmsg('MYSQL: creating database %s' % self.db_database)
+                cursor.execute('create database if not exists %s' %
+                               self.db_database)
+                infmsg('MYSQL: creating table %s' % self.db_table)
+                cursor.execute('create table if not exists %s %s' %
+                               (self.db_table,
+                                SCHEMA.gettablesql('auto_increment')))
             cursor.close()
 
             self.conn.commit()
@@ -3429,7 +3625,7 @@ class PeoplePowerProcessor(UploadProcessor):
 
     def _urlopen(self, url, s):
         s.insert(0, '<?xml version="1.0" encoding="UTF-8" ?>')
-        s.insert(1, '<h2s ver="2" hubId="%s" seq="%d">' % 
+        s.insert(1, '<h2s ver="2" hubId="%s" seq="%d">' %
                  (self.hub_id, self.nonce))
         s.append('</h2s>')
         result = super(PeoplePowerProcessor, self)._urlopen(url, ''.join(s))
@@ -3637,7 +3833,7 @@ class ThingSpeakProcessor(UploadProcessor):
                     if result and result.read:
                         resp = result.read()
                         if resp == 0:
-                            wrnmsg('TS: upload failed for %s: %s' % (ecm_serial, resp))                        
+                            wrnmsg('TS: upload failed for %s: %s' % (ecm_serial, resp))
                     else:
                         wrnmsg('TS: upload failed for %s' % ecm_serial)
             else:
@@ -3741,6 +3937,10 @@ class OpenEnergyMonitorProcessor(UploadProcessor):
         for p in packets:
             osn = obfuscate_serial(p['serial'])
             data = []
+            data.append('%s:%.1f' % (mklabel(osn, 'volts'), p['volts']))
+            if INCLUDE_CURRENT:
+                for idx, c, in enumerate(PACKET_FORMAT.channels(FILTER_CURRENT)):
+                    data.append('%s:%.2f' % (mklabel(osn, c), p[c]))
             for idx, c in enumerate(PACKET_FORMAT.channels(FILTER_PE_LABELS)):
                 data.append('%s_w:%.2f' % (mklabel(osn, c), p[c+'_w']))
             for idx, c in enumerate(PACKET_FORMAT.channels(FILTER_PE_LABELS)):
@@ -3930,7 +4130,178 @@ class PVOutputProcessor(UploadProcessor):
                         '\n  api_key: ' + self.api_key,
                         '\n  system_id: ' + self.system_id,
                         '\n  data:  ' + payload]))
-            
+
+
+class MQTTProcessor(BaseProcessor):
+    def __init__(self, host, port, clientid, base_topic, qos, retain,
+                 will, user, passwd, tls, map, period):
+        if not publish:
+            print 'MQTT Error: paho.mqtt.publish module could not be imported.'
+            sys.exit(1)
+
+        super(MQTTProcessor, self).__init__()
+        self.host  = host
+        self.port  = int(port)
+        self.clientid  = clientid
+        self.base_topic = base_topic
+        self.qos = int(qos)
+        self.retain = retain
+        self.will = will
+        self.user  = user
+        self.passwd  = passwd
+        self.tls = tls
+        self.map_str  = map
+        self.process_period = int(period)
+
+        infmsg('MQTT: mqtt:%s:%d?clientid=%s' %
+               (self.host, self.port, self.clientid))
+        infmsg('MQTT: user: %s' % (self.user or '<not-specified>'))
+        infmsg('MQTT: tls: %s' % (self.tls or '<not-specified>'))
+        infmsg('MQTT: topic: %s' % self.base_topic)
+        infmsg('MQTT: qos: %d' % self.qos)
+        infmsg('MQTT: retain: %s' % self.retain)
+        infmsg('MQTT: will: %s' % (self.will or '<not-specified>'))
+        infmsg('MQTT: upload period: %d' % self.process_period)
+        infmsg('MQTT: map: %s' % self.map_str)
+
+    def setup(self):
+        if self.user == None and self.passwd != None:
+            print 'MQTT Error: mqtt-user must be provided if mqtt-passwd configured'
+            sys.exit(1)
+        if self.qos not in (0, 1, 2):
+            print 'MQTT Error: qos values are 0, 1 or 2'
+            sys.exit(1)
+
+        self.map = pairs2dict(self.map_str)
+        if (self.user == None):
+            self.auth = None
+        else:
+            self.auth = {'username': self.user}
+            if self.passwd not in (None, ''):
+                self.auth['password'] = self.passwd
+
+        try:
+            self.will = json.loads(self.will) if self.will else None
+        except Exception:
+            print 'MQTT Error: mqtt-will parameter must be valid JSON'
+            sys.exit(1)
+
+        try:
+            self.tls = json.loads(self.tls) if self.tls else None
+        except Exception:
+            print 'MQTT Error: mqtt-tls parameter must be valid JSON'
+            sys.exit(1)
+
+    def _add_msg(self, packet, channel, payload):
+       if not payload:
+           return
+       key = mklabel(packet['serial'], channel)
+       if key in self.map:
+          key = self.map[key]
+       self._msgs.append({'topic': '%s/%s' % (self.base_topic, key),
+                    'payload': round(payload, 3),
+                    'qos': self.qos,
+                    'retain': self.retain})
+
+    def process_calculated(self, packets):
+        self._msgs = []
+        for p in packets:
+            self._add_msg(p, 'volts', p['volts'])
+            for f in [FILTER_POWER, FILTER_ENERGY, FILTER_PULSE, FILTER_SENSOR]:
+                for c in PACKET_FORMAT.channels(f):
+                    self._add_msg(p, c, p[c])
+            # Delta Wh
+            for c in PACKET_FORMAT.channels(FILTER_PE_LABELS):
+                self._add_msg(p, c+'_dwh', p[c+'_dwh'])
+
+        if len(self._msgs):
+            dbgmsg('MQTT: len=%d, msgs=%s' %
+                   (len(self._msgs), json.dumps(self._msgs)))
+            publish.multiple(self._msgs, hostname=self.host, port=self.port,
+                             client_id=self.clientid, auth=self.auth,
+                             will=self.will, tls=self.tls)
+            self.msgs = None
+        else:
+           dbgmsg('MQTT: Nothing to send')
+
+
+class InfluxDBProcessor(UploadProcessor):
+    def __init__(self, host, port, username, password, database, mode, measurement, map_str, tag_str, period, timeout, db_schema):
+        super(InfluxDBProcessor, self).__init__()
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self.database = database
+        self.mode = mode
+        self.measurement = measurement
+        self.map_str = map_str
+        self.tag_str = tag_str
+        self.process_period = int(period)
+        self.timeout = int(timeout)
+        self.map = dict()
+        self.tags = dict()
+		
+        if not db_schema:
+            self.db_schema = FILTER_DB_SCHEMA_COUNTERS
+        elif db_schema == DB_SCHEMA_COUNTERS:
+            self.db_schema = FILTER_DB_SCHEMA_COUNTERS
+        elif db_schema == DB_SCHEMA_ECMREAD:
+            self.db_schema = FILTER_DB_SCHEMA_ECMREAD
+        elif db_schema == DB_SCHEMA_ECMREADEXT:
+            self.db_schema = FILTER_DB_SCHEMA_ECMREADEXT
+        else:
+            print "Unsupported database schema '%s'" % db_schema
+            print 'supported schemas include:'
+            for fmt in DB_SCHEMAS:
+                print '  %s' % fmt
+            sys.exit(1)
+		
+
+        infmsg('InfluxDB: upload period: %d' % self.process_period)
+        infmsg('InfluxDB: host: %s' % self.host)
+        infmsg('InfluxDB: port: %s' % self.port)
+        infmsg('InfluxDB: username: %s' % self.username)
+        infmsg('InfluxDB: map: %s' % self.map_str)
+        infmsg('InfluxDB: schema: %s' % self.db_schema)
+
+    def setup(self):
+        self.map = pairs2dict(self.map_str)
+        self.tags = pairs2dict(self.tag_str)
+
+    def process_calculated(self, packets):
+        sensors = dict()
+        readings = dict()
+        series = []
+        for p in packets:
+            dev_serial = obfuscate_serial(p['serial'])
+            for c in PACKET_FORMAT.channels(self.db_schema):
+                key = mklabel(p['serial'], c)
+                if self.map and key not in self.map:
+                    continue
+                values = {
+                    "measurement": self.measurement,
+                    "time": mkts(p['time_created']),
+                }
+                if self.mode == 'col':
+                    values['fields'] = {
+                       'value': p[c] * 1.0,
+                    }
+                    values['tags'] = {
+                       "serial": dev_serial,
+                       "id": self.map[key] if key in self.map else c,
+                    }
+                else:
+                    value_name = self.map[key] if key in self.map else mklabel(dev_serial, c)
+                    values['fields'] = {}
+                    values['fields'][value_name] = p[c] * 1.0
+                series.append(values)
+        client = InfluxDBClient(self.host, self.port, self.username, self.password, self.database)
+        try:
+                client.create_database(self.database)
+        except:
+                pass
+        client.write_points(series, tags=self.tags)
 
 
 if __name__ == '__main__':
@@ -3944,8 +4315,11 @@ if __name__ == '__main__':
     parser.add_option('--skip-upload', action='store_true', default=False, help='do not upload data but print what would happen')
     parser.add_option('--buffer-size', help='number of packets to keep in cache', metavar='SIZE')
     parser.add_option('--trust-device-clock', action='store_true', default=False, help='use device clock for packet timestamps')
+    parser.add_option('--utc-device-clock', action='store_true', dest='device_clock_is_utc', default=False, help='device clock is in UTC')
     parser.add_option('--reverse-polarity', default=False, help='reverse polarity on all channels')
+    parser.add_option('--include-current', default=False, help='include and process current (amp) values from GEM')
     parser.add_option('--device-list', help='comma-separated list of device identifiers', metavar='LIST')
+    parser.add_option('--full-serials', action='store_true', default=False, help='show full serial numbers instead of XXX123')
 
     parser.add_option('--device-type', help='device types include '+', '.join(DEVICE_TYPES)+'; default is '+DEFAULT_DEVICE_TYPE, metavar='TYPE')
     parser.add_option('--packet-format', help='formats include '+', '.join(PACKET_FORMATS), metavar='FMT')
@@ -4136,6 +4510,37 @@ if __name__ == '__main__':
     group.add_option('--pvo-timeout', help='timeout period in seconds', metavar='TIMEOUT')
     parser.add_option_group(group)
 
+    group = optparse.OptionGroup(parser, 'MQTT options')
+    group.add_option('--mqtt', action='store_true', dest='mqtt_out', default=False, help='upload data using MQTT API')
+    group.add_option('--mqtt-host', help='mqtt host', metavar='HOSTNAME')
+    group.add_option('--mqtt-port', type='int', help='mqtt port', metavar='PORT')
+    group.add_option('--mqtt-clientid', help='client-id', metavar='CLIENTID')
+    group.add_option('--mqtt-base-topic', help='base topic', metavar='TOPIC')
+    group.add_option('--mqtt-qos', type='int', help='quality of service', metavar='QOS')
+    group.add_option('--mqtt-retain', action='store_true', help='retain msg as last good value', metavar='RETAIN')
+    group.add_option('--mqtt-will', help='mqtt will for the client', metavar='{"topic": "<topic>", "payload":"<payload>", "qos":<qos>, "retain":<retain>}')
+    group.add_option('--mqtt-user', help='user', metavar='USERNAME')
+    group.add_option('--mqtt-passwd', help='password', metavar='PASSWORD')
+    group.add_option('--mqtt-tls', help='tls credentials', metavar='{"ca_certs":"<ca_certs>", "certfile":"<certfile>", "keyfile":"<keyfile>", "tls_version":"<tls_version>", "ciphers":"<ciphers>"}')
+    group.add_option('--mqtt-map', help='channel-to-topic mapping', metavar='<channel-1>,<topic-1>,...<channel-n>,<topic-n>')
+    group.add_option('--mqtt-upload-period', type='int', help='upload period in seconds', metavar='PERIOD')
+
+    group = optparse.OptionGroup(parser, 'InfluxDB options')
+    group.add_option('--influxdb', action='store_true', dest='influxdb_out', default=False, help='upload data to InfluxBD')
+    group.add_option('--influxdb-username', help='username', metavar='USERNAME')
+    group.add_option('--influxdb-password', help='password', metavar='PASSWORD')
+    group.add_option('--influxdb-host', help='HOST', metavar='HOST')
+    group.add_option('--influxdb-port', help='PORT', metavar='PORT')
+    group.add_option('--influxdb-database', help='DATABASE', metavar='DATABASE')
+    group.add_option('--influxdb-mode', choices=['row', 'col'], help='row (1 series w/ many values) or col (many series w/ 1 value each)', metavar='MODE')
+    group.add_option('--influxdb-measurement', help='MEASUREMENT', metavar='MEASUREMENT')
+    group.add_option('--influxdb-map', help='channel-to-device mapping', metavar='MAP')
+    group.add_option('--influxdb-tags', help='map of shared tags to add (a,b,c,d adds tag a with value b, tag c with value d)', metavar='MAP')
+    group.add_option('--influxdb-upload-period', help='upload period in seconds', metavar='PERIOD')
+    group.add_option('--influxdb-timeout', help='timeout period in seconds', metavar='TIMEOUT')
+    group.add_option('--influxdb-db-schema', help='selected database schema', metavar='DB_SCHEMA')
+    parser.add_option_group(group)
+
     (options, args) = parser.parse_args()
 
     if options.quiet:
@@ -4171,9 +4576,15 @@ if __name__ == '__main__':
         SKIP_UPLOAD = 1
     if options.trust_device_clock:
         TRUST_DEVICE_CLOCK = 1
+    if options.device_clock_is_utc:
+        DEVICE_CLOCK_IS_UTC = 1
     if options.reverse_polarity:
         REVERSE_POLARITY = 1
         infmsg('polarity is reversed')
+    if options.include_current:
+        INCLUDE_CURRENT = 1
+    if options.full_serials:
+        OBFUSCATE_SERIALS = 0
 
     if not options.buffer_size:
         options.buffer_size = DEFAULT_BUFFER_SIZE
@@ -4322,15 +4733,18 @@ if __name__ == '__main__':
             options.peoplepower_out or options.eragy_out or
             options.smartenergygroups_out or options.thingspeak_out or
             options.pachube_out or options.oem_out or
-            options.wattvision_out or options.pvo_out):
+            options.wattvision_out or options.pvo_out or options.mqtt_out or
+            options.influxdb_out):
         print 'Please specify one or more processing options (or \'-h\' for help):'
         print '  --print              print to screen'
         print '  --mysql              write to mysql database'
         print '  --sqlite             write to sqlite database'
         print '  --rrd                write to round-robin database'
+        print '  --influxdb           write to influxdb database'
         print '  --bidgely            upload to Bidgely'
         print '  --enersave           upload to EnerSave (deprecated)'
         print '  --eragy              upload to Eragy'
+        print '  --mqtt               upload to MQTT broker'
         print '  --oem                upload to OpenEnergyMonitor'
         print '  --pachube            upload to Pachube'
         print '  --peoplepower        upload to PeoplePower'
@@ -4457,6 +4871,37 @@ if __name__ == '__main__':
                       options.pvo_temperature_channel or PVO_TEMP_CHANNEL,
                       options.pvo_upload_period or PVO_UPLOAD_PERIOD,
                       options.pvo_timeout or PVO_TIMEOUT))
+    if options.mqtt_out:
+        procs.append(MQTTProcessor
+                     (options.mqtt_host or MQTT_HOST,
+                      options.mqtt_port or MQTT_PORT,
+                      options.mqtt_clientid or MQTT_CLIENTID,
+                      options.mqtt_base_topic or MQTT_BASE_TOPIC,
+                      options.mqtt_qos or MQTT_QOS,
+                      options.mqtt_retain or MQTT_RETAIN,
+                      options.mqtt_will,
+                      options.mqtt_user,
+                      options.mqtt_passwd,
+                      options.mqtt_tls,
+                      options.mqtt_map or MQTT_MAP,
+                      options.mqtt_upload_period or MQTT_UPLOAD_PERIOD))
+    if options.influxdb_out:
+        if not InfluxDBClient:
+            print 'InfluxDBClient not loaded, cannot write to InfluxDB'
+            sys.exit(1)
+        procs.append(InfluxDBProcessor
+                     (options.influxdb_host or INFLUXDB_HOST,
+                      options.influxdb_port or INFLUXDB_PORT,
+                      options.influxdb_username or INFLUXDB_USERNAME,
+                      options.influxdb_password or INFLUXDB_PASSWORD,
+                      options.influxdb_database or INFLUXDB_DATABASE,
+                      options.influxdb_mode or INFLUXDB_MODE,
+                      options.influxdb_measurement or INFLUXDB_MEASUREMENT,
+                      options.influxdb_map or INFLUXDB_MAP,
+                      options.influxdb_tags or INFLUXDB_TAG_MAP,
+                      options.influxdb_upload_period or INFLUXDB_UPLOAD_PERIOD,
+                      options.influxdb_timeout or INFLUXDB_TIMEOUT,
+                      options.influxdb_db_schema or INFLUXDB_DB_SCHEMA))
 
     mon = Monitor(col, procs)
     mon.run()
