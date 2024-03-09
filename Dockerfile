@@ -14,14 +14,11 @@ ENV PYTHONUNBUFFERED=1
 ENV \
   TERM=xterm-color
 
-RUN apk add --no-cache python2 mysql-client sqlite && \
+RUN apk add --no-cache python2 sqlite && \
     python -m ensurepip && \
     rm -r /usr/lib/python*/ensurepip && \
     pip install --upgrade pip setuptools && \
     rm -r /root/.cache
-
-# Install mysql python connector
-RUN pip install --allow-external mysql-connector-python
 
 
 # Add files to the container.
