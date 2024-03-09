@@ -17,7 +17,7 @@ RUN \
   apk add --no-cache python3 mysql-client py3-pip sqlite
 
 # Install mysql python connector
-RUN pip install --allow-external mysql-connector-python
+RUN pip install mysql-connector-python
 
 # Add files to the container.
 COPY entrypoint.sh /docker-entrypoint
