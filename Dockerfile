@@ -4,7 +4,7 @@
 # http://github.com/tenstartups/btmon-docker
 #
 
-FROM tenstartups/alpine:latest
+FROM alpine:latest
 
 MAINTAINER Marc Lennox <marc.lennox@gmail.com>
 
