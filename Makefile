@@ -1,4 +1,4 @@
-DOCKER_IMAGE_NAME := tenstartups/ecm1240-monitor:latest
+DOCKER_IMAGE_NAME := psarossybtmon-influx:latest
 
 build: Dockerfile
 	docker build --file Dockerfile --tag $(DOCKER_IMAGE_NAME) .
