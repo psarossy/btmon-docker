@@ -14,7 +14,7 @@ ENV \
 
 # Install packages.
 RUN \
-  apk apk add --no-cache python3 mysql-client py3-pip sqlite
+  apk add --no-cache python3 mysql-client py3-pip sqlite
 
 # Install mysql python connector
 RUN pip install --allow-external mysql-connector-python
