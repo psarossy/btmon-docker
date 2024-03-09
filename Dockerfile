@@ -6,15 +6,23 @@
 
 FROM alpine:3.15
 
-MAINTAINER Marc Lennox <marc.lennox@gmail.com>
+# This hack is widely applied to avoid python printing issues in docker containers.
+# See: https://github.com/Docker-Hub-frolvlad/docker-alpine-python3/pull/13
+ENV PYTHONUNBUFFERED=1
 
 # Set environment variables.
 ENV \
   TERM=xterm-color
 
-# Install packages.
-RUN \
-  apk add --no-cache python2 mysql-client py-pip sqlite py3-mysqlclient
+RUN apk add --no-cache python2 mysql-client sqlite && \
+    python -m ensurepip && \
+    rm -r /usr/lib/python*/ensurepip && \
+    pip install --upgrade pip setuptools && \
+    rm -r /root/.cache
+
+# Install mysql python connector
+RUN pip install --allow-external mysql-connector-python
+
 
 # Add files to the container.
 COPY entrypoint.sh /docker-entrypoint
